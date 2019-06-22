@@ -3,14 +3,16 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"html/template"
+	_ "html/template"
 	"log"
 	"net/http"
+	"text/template"
+
+	"golang.org/x/crypto/bcrypt"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/gorilla/mux"
 	"github.com/kataras/go-sessions"
-	"golang.org/x/crypto/bcrypt"
+	_ "github.com/kataras/go-sessions"
 )
 
 var db *sql.DB
@@ -34,15 +36,53 @@ func connecdb() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	fmt.Println("Connected")
+}
+
+func routes() {
+	http.HandleFunc("/login", login)
+	http.HandleFunc("/", home)
+	http.HandleFunc("/logout", logout)
 }
 
 func main() {
 	connecdb()
-	router := mux.NewRouter()
-	router.PathPrefix("/Login").Handler(http.StripPrefix("/Login", http.FileServer(http.Dir("./Login"))))
-	http.ListenAndServe(":7777", router)
+	routes()
+	defer db.Close()
+
+	/*router := mux.NewRouter()
+	router.HandleFunc("/login", login)
+	router.HandleFunc("/", home)
+	/*router.PathPrefix("/Login").Handler(http.StripPrefix("/Login", http.FileServer(http.Dir("./Login"))))*/
+	log.Fatal(http.ListenAndServe(":7777", nil))
+}
+func QueryUser(username string) user {
+	var users = user{}
+	err = db.QueryRow(`
+		SELECT id,
+		username,
+		first_name,
+		last_name,
+		password
+		FROM users WHERE username=?`, username).
+		Scan(
+			&users.ID,
+			&users.Username,
+			&users.FirstName,
+			&users.LastName,
+			&users.Password,
+		)
+	return users
 }
 
+func checkErr(w http.ResponseWriter, r *http.Request, err error) bool {
+	if err != nil {
+		fmt.Println(r.Host + r.URL.Path)
+		http.Redirect(w, r, r.Host+r.URL.Path, 301)
+		return false
+	}
+	return true
+}
 func login(w http.ResponseWriter, r *http.Request) {
 	session := sessions.Start(w, r)
 	if len(session.GetString("username")) != 0 && checkErr(w, r, err) {
@@ -76,14 +116,14 @@ func login(w http.ResponseWriter, r *http.Request) {
 func home(w http.ResponseWriter, r *http.Request) {
 	session := sessions.Start(w, r)
 	if len(session.GetString("username")) == 0 {
-		http.Redirect(w, r, "/login", 301)
+		http.Redirect(w, r, "/", 301)
 	}
 
 	var data = map[string]string{
 		"username": session.GetString("username"),
 		"message":  "Welcome to the Go !",
 	}
-	var t, err = template.ParseFiles("views/home.html")
+	var t, err = template.ParseFiles("Login/Home.html")
 	if err != nil {
 		fmt.Println(err.Error())
 		return
@@ -93,37 +133,9 @@ func home(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func QueryUser(username string) user {
-	var users = user{}
-	err = db.QueryRow(`
-		SELECT id,
-		username,
-		first_name,
-		last_name,
-		password
-		FROM users WHERE username=?`, username).
-		Scan(
-			&users.ID,
-			&users.Username,
-			&users.FirstName,
-			&users.LastName,
-			&users.Password,
-		)
-	return users
-}
-
-func checkErr(w http.ResponseWriter, r *http.Request, err error) bool {
-	if err != nil {
-		fmt.Println(r.Host + r.URL.Path)
-		http.Redirect(w, r, r.Host+r.URL.Path, 301)
-		return false
-	}
-	return true
-}
-
 func logout(w http.ResponseWriter, r *http.Request) {
 	session := sessions.Start(w, r)
 	session.Clear()
 	sessions.Destroy(w, r)
-	http.Redirect(w, r, "/", 302)
+	http.Redirect(w, r, "/login", 302)
 }
